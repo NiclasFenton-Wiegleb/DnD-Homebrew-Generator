@@ -1,24 +1,21 @@
-import os
 import json
 import requests
 import time
 from openai import AzureOpenAI
-from dotenv import load_dotenv, dotenv_values
 
-load_dotenv()
 
 class Module1():
 
     def __init__(self):
-       self.client = None
-       self.assistant = None
+        self.client = None
+        self.assistant = None
         pass
 
-    def create(self):
+    def create(self, endpoint, api_key):
 
         client = AzureOpenAI(
-        azure_endpoint = os.getenv(AZURE_OPENAI_ENDPOINT),
-        api_key= os.getenv(AZURE_OPENAI_API_KEY),
+        azure_endpoint = endpoint,
+        api_key= api_key,
         api_version="2024-05-01-preview"
         )
 
@@ -57,4 +54,4 @@ class Module1():
         self.client = client
         self.assistant = assistant
 
-        return self.client, self.assistant
+        return client, assistant
