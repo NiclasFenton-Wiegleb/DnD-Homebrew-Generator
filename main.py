@@ -10,8 +10,12 @@ from module_1 import Module1
 if __name__ == '__main__':
     
     load_dotenv(find_dotenv())
-    AZURE_OPENAI_ENDPOINT = os.environ.get('AZURE_OPENAI_ENDPOINT')
-    AZURE_OPENAI_API_KEY = os.environ.get('AZURE_OPENAI_API_KEY')
+    endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
+    api_key = os.environ.get('AZURE_OPENAI_API_KEY')
+    model="gpt-35-turbo" # replace with model deployment name.
+
     # Module 1 execution
     module_1 = Module1()
-    client, assistant = module_1.create(endpoint= AZURE_OPENAI_ENDPOINT, api_key= AZURE_OPENAI_API_KEY)
+    module_1.load_prompt()
+    module_1.create(endpoint= endpoint, api_key= api_key, model= model)
+    print(module_1.assistant.id)
