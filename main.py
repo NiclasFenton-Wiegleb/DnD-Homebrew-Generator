@@ -23,7 +23,7 @@ if __name__ == '__main__':
     client_secret = os.environ.get('AZURE_CLIENT_SECRET')
     vault_url = os.environ.get('AZURE_VAULT_URL')
 
-    secret_name = 'dnd-generator-access-key'
+    secret_name = '__'
 
     # create a credential
     credentials = ClientSecretCredential(
