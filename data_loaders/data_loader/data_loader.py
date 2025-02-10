@@ -2,7 +2,7 @@ import io
 import os
 import uuid
 
-from azure.identity import DefaultAzureCredential
+from azure.identity import ClientSecretCredential
 from azure.storage.blob import BlobServiceClient, ContainerClient, BlobBlock, BlobClient, StandardBlobTier
 
 class DataLoader():

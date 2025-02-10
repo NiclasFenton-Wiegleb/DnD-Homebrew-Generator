@@ -18,10 +18,17 @@ if __name__ == '__main__':
     load_dotenv(find_dotenv())
 
     # DataLoader variables
+    # Service Principle
     client_id = os.environ.get('AZURE_CLIENT_ID')
     tenant_id = os.environ.get('AZURE_TENANT_ID')
     client_secret = os.environ.get('AZURE_CLIENT_SECRET')
+    # Key vault
     vault_url = os.environ.get('AZURE_VAULT_URL')
+    # Blob storage
+    account_url = os.environ.get('AZURE_STORAGE_URL')
+    # AI Search
+    ai_search_endpoint = os.environ.get('AZURE_SEARCH_SERVICE_ENDPOINT')
+    index_name = os.environ.get('AZURE_SEARCH_INDEX_NAME')
 
     secret_name = '__'
 
@@ -32,12 +39,12 @@ if __name__ == '__main__':
         tenant_id = tenant_id
     )
 
-    # create a secret client
-    secret_client = SecretClient(vault_url = vault_url, credential= credentials)
+    # # create a secret client
+    # secret_client = SecretClient(vault_url = vault_url, credential= credentials)
 
-    # retrieve the secret vaule from key vault
-    secret = secret_client.get_secret(secret_name)
-    print('The secret value is :' + secret.value)
+    # # retrieve the secret vaule from key vault
+    # secret = secret_client.get_secret(secret_name)
+    # print('The secret value is :' + secret.value)
 
     # Module variables
     # endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
@@ -45,18 +52,18 @@ if __name__ == '__main__':
 
     # model="gpt-35-turbo" # replace with model deployment name.
     
-    # account_url = "https://dndblobdata.blob.core.windows.net"
+    
     # credential = DefaultAzureCredential()
 
-    # data_loader = DataLoader(account_url, credential)
+    data_loader = DataLoader(account_url, credentials)
 
-    # data_loader.create()
+    data_loader.create()
 
-    # container_name='grimms_tales'
-    # filepath = '/home/niclaswiegleb/projects/DnD-Homebrew-Generator/data_loaders/data/german_folk_tales/'
-    # filename = 'grimms_tale.xlsx'
+    container_name='grimms-tales'
+    filepath = '/home/niclaswiegleb/projects/DnD-Homebrew-Generator/data_loaders/data/german_folk_tales/'
+    filename = 'grimms_tale.xlsx'
 
-    # data_loader.upload_blob_file(container_name=container_name, filepath=filepath, filename=filename)
+    data_loader.upload_blob_file(container_name=container_name, filepath=filepath, filename=filename)
 
     # Module 1 execution
     # module_1 = Module1()
