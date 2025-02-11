@@ -25,6 +25,37 @@ from azure.search.documents.indexes.models import (
 from module_1 import Module1
 from data_loader import DataLoader
 
+def create_search_index(dataloader, USE_AAD_FOR_SEARCH, index_name, vectorizer_name, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME, AZURE_OPENAI_API_KEY, AZURE_OPENAI_MODEL_NAME, ai_search_key, SEARCH_SERVICE_ENDPOINT):
+    # Create a search index using data_loader
+    azure_search_credential = data_loader.authenticate_azure_search(use_aad_for_search=USE_AAD_FOR_SEARCH)
+    fields = data_loader.create_fields(1500)
+    az_openai_par = AzureOpenAIVectorizerParameters(
+                        resource_url=AZURE_OPENAI_ENDPOINT,
+                        deployment_name=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
+                        api_key=AZURE_OPENAI_API_KEY,
+                        model_name=AZURE_OPENAI_MODEL_NAME,
+                    )
+
+    vector_search = data_loader.create_vector_search_configuration(
+        vectorizer_name=vectorizer_name,
+        az_openai_parameter=AzureOpenAIVectorizerParameters(
+                        resource_url=AZURE_OPENAI_ENDPOINT,
+                        deployment_name=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
+                        api_key=AZURE_OPENAI_API_KEY,
+                        model_name=AZURE_OPENAI_MODEL_NAME,
+                    )
+    )
+    semantic_search = data_loader.create_semantic_search_configuration()
+    ai_search_credentials = AzureKeyCredential(ai_search_key)
+    data_loader.create_search_index(
+        index_name= index_name,
+        fields= fields,
+        vector_search=vector_search,
+        semantic_search=semantic_search,
+        search_service_endpoint= SEARCH_SERVICE_ENDPOINT,
+        credential= ai_search_credentials
+    )
+    print(f"Created index: {index_name}")
 
 if __name__ == '__main__':
     
@@ -70,78 +101,30 @@ if __name__ == '__main__':
 
     # User-specified parameter
     USE_AAD_FOR_SEARCH = True  
-    # DataLoader
-    data_loader = DataLoader(account_url, credentials)
-    azure_search_credential = data_loader.authenticate_azure_search(use_aad_for_search=USE_AAD_FOR_SEARCH)
-    fields = data_loader.create_fields(1500)
-    az_openai_par = AzureOpenAIVectorizerParameters(
-                        resource_url=AZURE_OPENAI_ENDPOINT,
-                        deployment_name=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
-                        api_key=AZURE_OPENAI_API_KEY,
-                        model_name=AZURE_OPENAI_MODEL_NAME,
-                    )
-    index_name = "dnd-generator-openai-index"
+    index_name = "dnd-generator-openai-index002"
     vectorizer_name = "myOpenAI" if "openai" in index_name else None
-    print(vectorizer_name)
-    vector_search_config = data_loader.create_vector_search_configuration(
-        vectorizer_name=vectorizer_name,
-        az_openai_parameter=az_openai_par
-    )
-    print(vector_search_config)
-    # # Vector Search
-    # vector_search = VectorSearch(
-    #     algorithms=[
-    #         HnswAlgorithmConfiguration(
-    #             name= 'my-vector-config',
-    #             parameters={
-    #                 'm':4,
-    #                 'ef_construction': 400,
-    #                 'ef_search': 500,
-    #                 'metric': 'cosine'
-    #             }
-    #         )
-    #     ]
-    # )
-    # # Create a search index client
-    # search_client = SearchIndexClient(endpoint=ai_search_endpoint, credential=AzureKeyCredential(ai_search_key))
-
-    # #Create the index
-    # #TODO - add embeddings (AzureOpenAIEmbeddings())
-    # index_name = 'grimms-tales'
-    # fields = [
-    #     SimpleField(name='documentID', type=SearchFieldDataType.String, filterable=True, sortable=True, key=True),
-    #     SearchableField(name='content', type=SearchFieldDataType.String),
-    #     SearchField(name='embedding', type=SearchFieldDataType.Collection(SearchFieldDataType.Single), searchable=True, vector_search_profile_name=vector_search, vector_search_dimensions= 1000)
-    # ]
-
-    # index = SearchIndex(
-    #     name=index_name,
-    #     fields=fields,
-    #     vector_search=vector_search
-    # )
-
-    # result = search_client.create_index(index)
-
-    # # create a secret client
-    # secret_client = SecretClient(vault_url = vault_url, credential= credentials)
-
-    # # retrieve the secret vaule from key vault
-    # secret = secret_client.get_secret(secret_name)
-    # print('The secret value is :' + secret.value)
 
     # Module variables
-    # endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
-    # api_key = os.environ.get('AZURE_OPENAI_API_KEY')
+    endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
+    api_key = os.environ.get('AZURE_OPENAI_API_KEY')
 
-    # model="gpt-35-turbo" # replace with model deployment name.
-    
-    
-    # credential = DefaultAzureCredential()
-
+    model="gpt-35-turbo" # replace with model deployment name.
     # DataLoader
-    # data_loader = DataLoader(account_url, credentials)
+    data_loader = DataLoader(account_url, credentials)
+    
+    # Create search index
+    # create_search_index(
+    #     data_loader,
+    #     USE_AAD_FOR_SEARCH,
+    #     index_name, vectorizer_name,
+    #     AZURE_OPENAI_ENDPOINT,
+    #     AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
+    #     AZURE_OPENAI_API_KEY, AZURE_OPENAI_MODEL_NAME,
+    #     ai_search_key,
+    #     SEARCH_SERVICE_ENDPOINT)
 
-    # data_loader.create()
+    # Create Blob Storage
+    # data_loader.create_blob()
 
     # container_name='grimms-tales'
     # filepath = '/home/niclaswiegleb/projects/DnD-Homebrew-Generator/data_loaders/data/german_folk_tales/'

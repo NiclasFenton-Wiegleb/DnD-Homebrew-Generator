@@ -60,25 +60,26 @@ class DataLoader():
     def __init__(self, account_url, credentials):
         self.account_url = account_url
         self.credentials = credentials
-        self.client = None
+        self.blob_client = None
+        self.index_client = None
 
-    def create(self):
+    def create_blob(self):
         # Create the BlobServiceClient object    
-        self.client = BlobServiceClient(self.account_url, credential=self.credentials)
+        self.bob_client = BlobServiceClient(self.account_url, credential=self.credentials)
 
     def upload_blob_file(self, container_name: str, filepath: str, filename: str):
         # upload a file to the named container or create the container if doesn't exist yet.
         try:
-            container_client = self.client.get_container_client(container=container_name)
+            container_client = self.bob_client.get_container_client(container=container_name)
 
             with open(file=os.path.join(filepath, filename), mode='rb') as data:
-                blob_client = container_client.upload_blob(name=filename, data=data, overwrite=True)
+                blob_client_file = container_client.upload_blob(name=filename, data=data, overwrite=True)
         
         except:
-            container_client = self.client.create_container(container_name)
+            container_client = self.bob_client.create_container(container_name)
 
             with open(file=os.path.join(filepath, filename), mode='rb') as data:
-                blob_client = container_client.upload_blob(name=filename, data=data, overwrite=True)
+                blob_client_file = container_client.upload_blob(name=filename, data=data, overwrite=True)
 
     def authenticate_azure_search(self, api_key=None, use_aad_for_search=False):
         #Allows user to choose whether to use credentials or api-key to use for authentication
@@ -158,9 +159,7 @@ class DataLoader():
             ],
             vectorizers=[
                 AzureOpenAIVectorizer(
-                    name="myOpenAI",
-                    kind="azureOpenAI",
-                    azure_open_ai_parameters=az_openai_parameter,
+                    parameters=az_openai_parameter,
                     vectorizer_name=vectorizer_name
                 ),
             ],
@@ -173,6 +172,38 @@ class DataLoader():
                 )
             ],
         )
+    
+    def create_semantic_search_configuration(self):
+        # Search configuration for semantic search
+        return SemanticSearch(
+            configurations=[
+                SemanticConfiguration(
+                    name="mySemanticConfig",
+                    prioritized_fields=SemanticPrioritizedFields(
+                        content_fields=[SemanticField(field_name="chunk")]
+                    ),
+                )
+            ]
+        )
+    
+    def create_search_index(self, index_name, fields, vector_search, semantic_search, search_service_endpoint, credential=None):
+        # Takes the various configurations and creates a search index
+        if credential == None:
+            index_client = SearchIndexClient(
+                endpoint=search_service_endpoint, credential=self.credentials
+            )
+        else:
+            index_client = SearchIndexClient(
+                endpoint=search_service_endpoint, credential=credential
+            )
+        index = SearchIndex(
+            name=index_name,
+            fields=fields,
+            vector_search=vector_search,
+            semantic_search=semantic_search,
+        )
+        self.index_client = index_client.create_or_update_index(index)
+            
 
 if __name__ == '__main__':
 
