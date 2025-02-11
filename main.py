@@ -8,7 +8,7 @@ from azure.core.credentials import AzureKeyCredential
 from azure.identity import ClientSecretCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
-# from azure.search.documents.models import Vector
+from azure.search.documents.indexes.models import AzureOpenAIVectorizerParameters
 from azure.search.documents.indexes.models import (
     ComplexField,
     CorsOptions,
@@ -55,7 +55,7 @@ if __name__ == '__main__':
     AZURE_OPENI_CHAT_COMPLETION_DEPLOYED_MODEL_NAME = os.getenv("AZURE_OPENAI_CHAT_COMPLETION_DEPLOYED_MODEL_NAME")
     AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME")
     AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-    INDEX_NAME = "fsunavala-aws-openai"
+    AZURE_OPENAI_MODEL_NAME = os.getenv("AZURE_OPENAI_MODEL_NAME")
     ONELAKE_CONNECTION_STRING = os.getenv("ONELAKE_CONNECTION_STRING")
     ONELAKE_CONTAINER_NAME = os.getenv("ONELAKE_CONTAINER_NAME")
     SEARCH_SERVICE_API_KEY = os.getenv("AZURE_SEARCH_ADMIN_KEY")
@@ -73,8 +73,21 @@ if __name__ == '__main__':
     # DataLoader
     data_loader = DataLoader(account_url, credentials)
     azure_search_credential = data_loader.authenticate_azure_search(use_aad_for_search=USE_AAD_FOR_SEARCH)
-
-    print(azure_search_credential)
+    fields = data_loader.create_fields(1500)
+    az_openai_par = AzureOpenAIVectorizerParameters(
+                        resource_url=AZURE_OPENAI_ENDPOINT,
+                        deployment_name=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
+                        api_key=AZURE_OPENAI_API_KEY,
+                        model_name=AZURE_OPENAI_MODEL_NAME,
+                    )
+    index_name = "dnd-generator-openai-index"
+    vectorizer_name = "myOpenAI" if "openai" in index_name else None
+    print(vectorizer_name)
+    vector_search_config = data_loader.create_vector_search_configuration(
+        vectorizer_name=vectorizer_name,
+        az_openai_parameter=az_openai_par
+    )
+    print(vector_search_config)
     # # Vector Search
     # vector_search = VectorSearch(
     #     algorithms=[
