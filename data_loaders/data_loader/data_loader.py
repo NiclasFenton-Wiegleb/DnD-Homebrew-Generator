@@ -62,6 +62,7 @@ class DataLoader():
         self.credentials = credentials
         self.blob_client = None
         self.index_client = None
+        self.indexer_client = None
 
     def create_blob(self):
         # Create the BlobServiceClient object    
@@ -203,7 +204,79 @@ class DataLoader():
             semantic_search=semantic_search,
         )
         self.index_client = index_client.create_or_update_index(index)
-            
+
+    def create_split_skill(self):
+        """Creates a split skill to chunk documents into pages."""
+        return SplitSkill(
+            description="Split skill to chunk documents",
+            text_split_mode="pages",
+            context="/document",
+            maximum_page_length=2000,
+            page_overlap_length=500,
+            inputs=[InputFieldMappingEntry(name="text", source="/document/content")],
+            outputs=[OutputFieldMappingEntry(name="textItems", target_name="pages")],
+        )   
+
+    def create_embedding_skill_openai(self, azure_openai_endpoint, azure_openai_embedding_deployment, azure_openai_key):
+        """Defines the embedding skill for generating embeddings via Azure OpenAI."""
+        return AzureOpenAIEmbeddingSkill(
+            description="Skill to generate embeddings via Azure OpenAI",
+            context="/document/pages/*",
+            resource_url=azure_openai_endpoint,
+            deployment_name=azure_openai_embedding_deployment,
+            api_key=azure_openai_key,
+            model_name=AzureOpenAIModelName.TEXT_EMBEDDING3_LARGE,
+            dimensions=3072, # Take advantage of the larger model with variable dimension sizes
+            inputs=[InputFieldMappingEntry(name="text", source="/document/pages/*")],
+            outputs=[OutputFieldMappingEntry(name="embedding", target_name="vector")],
+        )
+
+    def create_index_projections(self, index_name):
+        """Creates index projections for use in a skillset."""
+        vector_source = ("/document/pages/*/vector")
+        return SearchIndexerIndexProjection(
+            selectors=[
+                SearchIndexerIndexProjectionSelector(
+                    target_index_name=index_name,
+                    parent_key_field_name="parent_id",
+                    source_context="/document/pages/*",
+                    mappings=[
+                        InputFieldMappingEntry(name="chunk", source="/document/pages/*"),
+                        InputFieldMappingEntry(name="vector", source=vector_source),
+                        InputFieldMappingEntry(
+                            name="title", source="/document/metadata_storage_name"
+                        ),
+                    ],
+                ),
+            ],
+            parameters=SearchIndexerIndexProjectionsParameters(
+                projection_mode=IndexProjectionMode.SKIP_INDEXING_PARENT_DOCUMENTS
+            ),
+        )
+
+    def create_indexer_client(self, search_service_endpoint, credential):
+        # Creates indexer client object
+        self.indexer_client = SearchIndexerClient(
+                search_service_endpoint, credential=credential
+            )
+
+    def create_skillset(self, skillset_name, skills, index_projections):
+        """Creates or updates the skillset with embedding and indexing projection skills."""
+        if self.indexer_client != None:
+            client = self.indexer_client
+            skillset = SearchIndexerSkillset(
+                name=skillset_name,
+                description="Skillset to chunk documents and generate embeddings",
+                skills=skills,
+                index_projections=index_projections,
+            )
+            try:
+                client.create_or_update_skillset(skillset)
+                print(f"Skillset '{skillset_name}' created or updated.")
+            except Exception as e:
+                print(f"Failed to create or update skillset '{skillset_name}': {e}")
+        else:
+            raise ValueError('Client object cannot be None. Create client first using create_indexer_client method.')
 
 if __name__ == '__main__':
 
