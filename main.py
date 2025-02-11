@@ -47,6 +47,20 @@ if __name__ == '__main__':
 
     secret_name = '__'
 
+    # Tutorial env variables
+    # Configuration
+    AZURE_AI_STUDIO_COHERE_API_KEY = os.getenv("AZURE_AI_STUDIO_COHERE_API_KEY")
+    AZURE_AI_STUDIO_COHERE_ENDPOINT = os.getenv("AZURE_AI_STUDIO_COHERE_ENDPOINT")
+    AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+    AZURE_OPENI_CHAT_COMPLETION_DEPLOYED_MODEL_NAME = os.getenv("AZURE_OPENAI_CHAT_COMPLETION_DEPLOYED_MODEL_NAME")
+    AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME")
+    AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+    INDEX_NAME = "fsunavala-aws-openai"
+    ONELAKE_CONNECTION_STRING = os.getenv("ONELAKE_CONNECTION_STRING")
+    ONELAKE_CONTAINER_NAME = os.getenv("ONELAKE_CONTAINER_NAME")
+    SEARCH_SERVICE_API_KEY = os.getenv("AZURE_SEARCH_ADMIN_KEY")
+    SEARCH_SERVICE_ENDPOINT = os.getenv("AZURE_SEARCH_SERVICE_ENDPOINT")
+
     # create a credentials
     credentials = ClientSecretCredential(
         client_id = client_id,
@@ -54,39 +68,46 @@ if __name__ == '__main__':
         tenant_id = tenant_id
     )
 
-    # Vector Search
-    vector_search = VectorSearch(
-        algorithms=[
-            HnswAlgorithmConfiguration(
-                name= 'my-vector-config',
-                parameters={
-                    'm':4,
-                    'ef_construction': 400,
-                    'ef_search': 500,
-                    'metric': 'cosine'
-                }
-            )
-        ]
-    )
-    # Create a search index client
-    search_client = SearchIndexClient(endpoint=ai_search_endpoint, credential=AzureKeyCredential(ai_search_key))
+    # User-specified parameter
+    USE_AAD_FOR_SEARCH = True  
+    # DataLoader
+    data_loader = DataLoader(account_url, credentials)
+    azure_search_credential = data_loader.authenticate_azure_search(use_aad_for_search=USE_AAD_FOR_SEARCH)
 
-    #Create the index
-    #TODO - add embeddings (AzureOpenAIEmbeddings())
-    index_name = 'grimms-tales'
-    fields = [
-        SimpleField(name='documentID', type=SearchFieldDataType.String, filterable=True, sortable=True, key=True),
-        SearchableField(name='content', type=SearchFieldDataType.String),
-        SearchField(name='embedding', type=SearchFieldDataType.Collection(SearchFieldDataType.Single), searchable=True, vector_search_profile_name=vector_search, vector_search_dimensions= 1000)
-    ]
+    print(azure_search_credential)
+    # # Vector Search
+    # vector_search = VectorSearch(
+    #     algorithms=[
+    #         HnswAlgorithmConfiguration(
+    #             name= 'my-vector-config',
+    #             parameters={
+    #                 'm':4,
+    #                 'ef_construction': 400,
+    #                 'ef_search': 500,
+    #                 'metric': 'cosine'
+    #             }
+    #         )
+    #     ]
+    # )
+    # # Create a search index client
+    # search_client = SearchIndexClient(endpoint=ai_search_endpoint, credential=AzureKeyCredential(ai_search_key))
 
-    index = SearchIndex(
-        name=index_name,
-        fields=fields,
-        vector_search=vector_search
-    )
+    # #Create the index
+    # #TODO - add embeddings (AzureOpenAIEmbeddings())
+    # index_name = 'grimms-tales'
+    # fields = [
+    #     SimpleField(name='documentID', type=SearchFieldDataType.String, filterable=True, sortable=True, key=True),
+    #     SearchableField(name='content', type=SearchFieldDataType.String),
+    #     SearchField(name='embedding', type=SearchFieldDataType.Collection(SearchFieldDataType.Single), searchable=True, vector_search_profile_name=vector_search, vector_search_dimensions= 1000)
+    # ]
 
-    result = search_client.create_index(index)
+    # index = SearchIndex(
+    #     name=index_name,
+    #     fields=fields,
+    #     vector_search=vector_search
+    # )
+
+    # result = search_client.create_index(index)
 
     # # create a secret client
     # secret_client = SecretClient(vault_url = vault_url, credential= credentials)

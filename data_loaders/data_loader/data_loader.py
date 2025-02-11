@@ -1,9 +1,59 @@
 import io
 import os
 import uuid
+import time
 
+import cohere
+import openai
+from azure.core.credentials import AzureKeyCredential
 from azure.identity import ClientSecretCredential
+from azure.search.documents import SearchClient
 from azure.storage.blob import BlobServiceClient, ContainerClient, BlobBlock, BlobClient, StandardBlobTier
+from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
+from azure.search.documents.indexes.models import (
+    AzureMachineLearningSkill,
+    AzureOpenAIEmbeddingSkill,
+    AzureOpenAIModelName,
+    AzureOpenAIVectorizer,
+    AzureOpenAIVectorizerParameters,
+    ExhaustiveKnnAlgorithmConfiguration,
+    ExhaustiveKnnParameters,
+    FieldMapping,
+    HnswAlgorithmConfiguration,
+    HnswParameters,
+    IndexProjectionMode,
+    InputFieldMappingEntry,
+    OutputFieldMappingEntry,
+    ScalarQuantizationCompression,
+    ScalarQuantizationParameters,
+    SearchField,
+    SearchFieldDataType,
+    SearchIndex,
+    SearchIndexer,
+    SearchIndexerDataContainer,
+    SearchIndexerDataSourceConnection,
+    SearchIndexerIndexProjectionSelector,
+    SearchIndexerIndexProjection,
+    SearchIndexerIndexProjectionsParameters,
+    SearchIndexerSkillset,
+    SemanticConfiguration,
+    SemanticField,
+    SemanticPrioritizedFields,
+    SemanticSearch,
+    SplitSkill,
+    VectorSearch,
+    VectorSearchAlgorithmMetric,
+    VectorSearchProfile,
+)
+from azure.search.documents.models import (
+    HybridCountAndFacetMode,
+    HybridSearch,
+    SearchScoreThreshold,
+    VectorSimilarityThreshold,
+    VectorizableTextQuery,
+    VectorizedQuery
+)
+
 
 class DataLoader():
 
@@ -29,6 +79,18 @@ class DataLoader():
 
             with open(file=os.path.join(filepath, filename), mode='rb') as data:
                 blob_client = container_client.upload_blob(name=filename, data=data, overwrite=True)
+
+    def authenticate_azure_search(self, api_key=None, use_aad_for_search=False):
+        if use_aad_for_search:
+            print("Using AAD for authentication.")
+            credential = self.credentials
+        else:
+            print("Using API keys for authentication.")
+            if api_key is None:
+                raise ValueError("API key must be provided if not using AAD for authentication.")
+            credential = AzureKeyCredential(api_key)
+        
+        return credential
 
 if __name__ == '__main__':
 
