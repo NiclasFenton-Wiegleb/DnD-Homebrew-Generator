@@ -101,7 +101,7 @@ if __name__ == '__main__':
 
     # User-specified parameter
     USE_AAD_FOR_SEARCH = True  
-    index_name = "dnd-generator-openai-index002"
+    index_name = "_____"
     vectorizer_name = "myOpenAI" if "openai" in index_name else None
 
     # Module variables
@@ -124,21 +124,33 @@ if __name__ == '__main__':
     #     SEARCH_SERVICE_ENDPOINT)
 
     # Create Skillset
-    skillset_name = f"{index_name}-skillset"
+    # skillset_name = f"{index_name}-skillset"
 
-    split_skill = data_loader.create_split_skill()
-    openai_embedding_skill = data_loader.create_embedding_skill_openai(
-        azure_openai_endpoint= AZURE_OPENAI_ENDPOINT,
-        azure_openai_embedding_deployment= AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
-        azure_openai_key= AZURE_OPENAI_API_KEY)
-    search_indexer = data_loader.create_index_projections(index_name)
-    data_loader.create_indexer_client(SEARCH_SERVICE_ENDPOINT, credential=AzureKeyCredential(ai_search_key))
-    skills = [split_skill, openai_embedding_skill]
-    data_loader.create_skillset(
-        skillset_name=skillset_name,
-        skills=skills,
-        index_projections=search_indexer
-        )
+    # split_skill = data_loader.create_split_skill()
+    # openai_embedding_skill = data_loader.create_embedding_skill_openai(
+    #     azure_openai_endpoint= AZURE_OPENAI_ENDPOINT,
+    #     azure_openai_embedding_deployment= AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
+    #     azure_openai_key= AZURE_OPENAI_API_KEY)
+    # search_indexer = data_loader.create_index_projections(index_name)
+    # data_loader.create_indexer_client(SEARCH_SERVICE_ENDPOINT, credential=AzureKeyCredential(ai_search_key))
+    # skills = [split_skill, openai_embedding_skill]
+    # data_loader.create_skillset(
+    #     skillset_name=skillset_name,
+    #     skills=skills,
+    #     index_projections=search_indexer
+    #     )
+
+    # Run Indexer
+    # data_source = '___'
+    # skillset_name = f"{index_name}-skillset"
+    # data_loader.create_indexer_client(SEARCH_SERVICE_ENDPOINT, credential=AzureKeyCredential(ai_search_key))
+    # data_loader.create_and_run_indexer(
+    #     index_name=index_name,
+    #     skillset_name=skillset_name,
+    #     data_source=data_source,
+    #     endpoint=SEARCH_SERVICE_ENDPOINT,
+    #     credential=AzureKeyCredential(ai_search_key))
+
     # Create Blob Storage
     # data_loader.create_blob()
 

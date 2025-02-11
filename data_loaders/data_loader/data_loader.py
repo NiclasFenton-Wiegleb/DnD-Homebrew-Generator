@@ -278,6 +278,25 @@ class DataLoader():
         else:
             raise ValueError('Client object cannot be None. Create client first using create_indexer_client method.')
 
+    def create_and_run_indexer(self, index_name, skillset_name, data_source, endpoint, credential):
+        # Creates and runs an indexer over a provided data_source.
+        indexer_name = f"{index_name}-indexer"
+        indexer = SearchIndexer(
+            name=indexer_name,
+            description="Indexer to index documents and generate embeddings",
+            skillset_name=skillset_name,
+            target_index_name=index_name,
+            data_source_name=data_source,
+            field_mappings=[FieldMapping(source_field_name="metadata_storage_name", target_field_name="title")],
+        )
+        if self.indexer_client != None:
+            client = self.indexer_client
+        else:
+            raise ValueError('Client object cannot be None. Create client first using create_indexer_client method.')
+        client.create_or_update_indexer(indexer)
+        client.run_indexer(indexer_name)
+        print(f"{indexer_name} is created and running.")
+
 if __name__ == '__main__':
 
     account_url = "https://dndblobdata.blob.core.windows.net"
