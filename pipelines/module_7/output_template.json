@@ -1,0 +1,12 @@
+
+{
+    "output": [{
+        "locations": [ "location1", "location2"],
+        "characters": [{"character_name": "character1" , "location": "location1"},
+        {"character_name": "character2" , "location": "location2"}],
+        "actions": [{"action": "action1", "character": "character1", "location": "location1"},
+        {"action": "action2", "character": "character2", "location": "location2"}],
+        "clues": [{"clue": "clue1", "location": "location1", "significants": "significant_clue1"},
+        {"clue": "clue1", "location": "location1", "significants": "significant_clue1"}]
+        }]
+}

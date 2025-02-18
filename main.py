@@ -3,7 +3,9 @@ import os
 sys.path.append('./pipelines')
 sys.path.append('./data_loaders')
 
-from langchain import PromptTemplate
+from langchain_community.vectorstores.azuresearch import AzureSearch
+from langchain_openai import AzureOpenAIEmbeddings
+from langchain_core.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_openai import AzureChatOpenAI
 from dotenv import load_dotenv, find_dotenv
@@ -112,7 +114,7 @@ if __name__ == '__main__':
 
     # User-specified parameter
     USE_AAD_FOR_SEARCH = True  
-    index_name = "_____"
+    # index_name = "_____"
     vectorizer_name = "myOpenAI" if "openai" in index_name else None
 
     # Module variables
@@ -132,10 +134,65 @@ if __name__ == '__main__':
             credentials=credentials,
         )
     ml_client = MLClient(credentials, SUBSCRIPTION_ID, RESOURCE_GROUP, AI_PROJECT)
-    ml_client.connections.create_or_update(wps_connection)
+    # ml_client.connections.create_or_update(wps_connection)
+    ai_search_connection = ml_client.connections.get(AZURE_AI_SEARCH)
 
+    # index_langchain_retriever = get_langchain_retriever_from_index(ai_search_connection.path)
+    embeddings = AzureOpenAIEmbedding(
+        api_key=AZURE_OPENAI_API_KEY,
+        openai_api_version="2024-03-01-preview",
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME
+    )
+    
+    vector_stor = AzureSearch(
+        azure_search_endpoint= ai_search_endpoint,
+        azure_search_key=ai_search_key,
+        index_name=index_name,
+        embedding_function=embeddings.embed_query
+    )
     # Create chat
+    llm = AzureChatOpenAI(
+        openai_api_version="2024-06-01",
+        api_key=AZURE_OPENAI_API_KEY,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
+        temperature=0.8,
+    )
 
+    template = """
+        System:
+        You are an AI assistant helping users answer questions given a specific context.
+        Use the following pieces of context to answer the questions as completely, 
+        correctly, and concisely as possible.
+        Your answer should only come from the context. Don't try to make up an answer.
+
+        {context}
+
+        ---
+
+        Question: {question}
+
+        Answer:"
+        """
+    prompt_template = PromptTemplate(template=template, input_variables=["context", "question"])
+
+    qa = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=index_langchain_retriever,
+        return_source_documents=True,
+        chain_type_kwargs={
+            "prompt": prompt_template,
+        },
+    )
+
+    question = """
+        In the grimms_tale.xlsx dataset, what is the story with the highest rating?
+        """
+
+    response = qa(question)
+    print(f'"answer": {response["result"]}')
     # Create search index
     # create_search_index(
     #     data_loader,
