@@ -3,6 +3,8 @@ import requests
 import time
 
 from openai import AzureOpenAI
+from azure.identity import DefaultAzureCredential
+from azure.ai.ml import MLClient
 
 # Base class for subsequent modules (template)
 class BaseModule():

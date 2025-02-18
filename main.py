@@ -3,9 +3,15 @@ import os
 sys.path.append('./pipelines')
 sys.path.append('./data_loaders')
 
+from langchain import PromptTemplate
+from langchain.chains import RetrievalQA
+from langchain_openai import AzureChatOpenAI
 from dotenv import load_dotenv, find_dotenv
 from azure.core.credentials import AzureKeyCredential
 from azure.identity import ClientSecretCredential
+from azure.identity import DefaultAzureCredential
+from azure.ai.ml import MLClient
+from azure.ai.ml.entities import AzureAISearchConnection
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import AzureOpenAIVectorizerParameters
@@ -91,6 +97,11 @@ if __name__ == '__main__':
     ONELAKE_CONTAINER_NAME = os.getenv("ONELAKE_CONTAINER_NAME")
     SEARCH_SERVICE_API_KEY = os.getenv("AZURE_SEARCH_ADMIN_KEY")
     SEARCH_SERVICE_ENDPOINT = os.getenv("AZURE_SEARCH_SERVICE_ENDPOINT")
+    SUBSCRIPTION_ID = os.getenv("SUBSCRIPTION_ID")
+    RESOURCE_GROUP = os.getenv("RESOURCE_GROUP")
+    AI_PROJECT = os.getenv("AI_PROJECT")
+    AZURE_AI_SEARCH = os.getenv("AZURE_AI_SEARCH")
+    AZURE_AI_SEARCH_TARGET = os.getenv("AZURE_AI_SEARCH_TARGET")
 
     # create a credentials
     credentials = ClientSecretCredential(
@@ -112,6 +123,19 @@ if __name__ == '__main__':
     # DataLoader
     data_loader = DataLoader(account_url, credentials)
     
+    # Create and connect vector store to base module
+
+    # Connect to Azure AI Foundry project and AI search service resource
+    wps_connection = AzureAISearchConnection(
+            name=AZURE_AI_SEARCH,
+            endpoint=AZURE_AI_SEARCH_TARGET,
+            credentials=credentials,
+        )
+    ml_client = MLClient(credentials, SUBSCRIPTION_ID, RESOURCE_GROUP, AI_PROJECT)
+    ml_client.connections.create_or_update(wps_connection)
+
+    # Create chat
+
     # Create search index
     # create_search_index(
     #     data_loader,
