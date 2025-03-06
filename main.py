@@ -1,8 +1,15 @@
 import sys
 import os
+import json
 sys.path.append('./pipelines')
 sys.path.append('./data_loaders')
 
+import pandas as pd
+from openai import AzureOpenAI
+from langchain.chains import create_history_aware_retriever
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_community.vectorstores.azuresearch import AzureSearch
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_core.prompts import PromptTemplate
@@ -65,6 +72,7 @@ def create_search_index(dataloader, USE_AAD_FOR_SEARCH, index_name, vectorizer_n
     )
     print(f"Created index: {index_name}")
 
+
 if __name__ == '__main__':
     
     # Configure environmental variables
@@ -104,6 +112,7 @@ if __name__ == '__main__':
     AI_PROJECT = os.getenv("AI_PROJECT")
     AZURE_AI_SEARCH = os.getenv("AZURE_AI_SEARCH")
     AZURE_AI_SEARCH_TARGET = os.getenv("AZURE_AI_SEARCH_TARGET")
+    AZURE_BLOB_DATA_SOURCE = os.getenv("AZURE_BLOB_DATA_SOURCE")
 
     # create a credentials
     credentials = ClientSecretCredential(
@@ -125,124 +134,239 @@ if __name__ == '__main__':
     # DataLoader
     data_loader = DataLoader(account_url, credentials)
     
-    # Create and connect vector store to base module
+    # Set variable for what service to run
+    options = ['create_embeddings', 'create_connect_vcstore', 'create_search_index'
+                'create_skillset', 'run_indexer', 'create_blob', 'upload_embeddings_to_index']
+    text = ', '.join(options)
+    print('What would you like to do?')
+    user_input = input(f'Available options:\n{text}\n')
+    while user_input not in options:
+        print('Invalid option.')
+        user_input = input(f'Available options:\n{text}\n')
 
-    # Connect to Azure AI Foundry project and AI search service resource
-    wps_connection = AzureAISearchConnection(
-            name=AZURE_AI_SEARCH,
-            endpoint=AZURE_AI_SEARCH_TARGET,
-            credentials=credentials,
+    if 'create_embeddings' == user_input:
+        # Create embeddings from datasets
+        filepath = input(f'Enter filepath: \n')
+        directory = os.fsencode(filepath)
+       
+        input_data = []
+
+        embeddings = AzureOpenAIEmbeddings(
+            api_key=AZURE_OPENAI_API_KEY,
+            openai_api_version="2024-03-01-preview",
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME
         )
-    ml_client = MLClient(credentials, SUBSCRIPTION_ID, RESOURCE_GROUP, AI_PROJECT)
-    # ml_client.connections.create_or_update(wps_connection)
-    ai_search_connection = ml_client.connections.get(AZURE_AI_SEARCH)
+        
+        for file in os.listdir(directory):
+            filename = os.fsdecode(file)
+            if filename.endswith('.csv'):
+                # Create dataframe from file and iterate over each line
+                data = pd.read_csv(f'{filepath}/{filename}')
+                for i in range(len(data.index)):
+                    dict_data = {}
+                    dict_data['filename'] = filename
+                    dict_data['id'] = i + 1
+                    print(dict_data)
+                    break
+                    chunk = []
+        #             for c in data.columns:
+        #                 sentence = f'{c}: {data[c].iloc[i]}'
+        #                 chunk.append(sentence)
+        #             chunks = ';'.join(chunk)
+        #             dict_data['line'] = chunks
+        #             dict_data['embedding'] = embeddings.embed_query(chunks)
+        #         input_data.append(dict_data)
+        #     else:
+        #         continue
+        #     print(f'Completed processing: {filename}')
+        # # Output embeddings to docVectors.json file
+        # try:
+        #     with open(f'{filepath}/docVectors.json', 'x') as f:
+        #         json.dump(input_data, f)
+        # except:
+        #     with open(f'{filepath}/docVectors.json', 'w') as f:
+        #         json.dump(input_data, f)
 
-    # index_langchain_retriever = get_langchain_retriever_from_index(ai_search_connection.path)
-    embeddings = AzureOpenAIEmbedding(
-        api_key=AZURE_OPENAI_API_KEY,
-        openai_api_version="2024-03-01-preview",
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME
-    )
+    if 'upload_embeddings_to_index' == user_input:
+        # Upload the created embeddings to Azure index
+        index_client = SearchIndexClient(endpoint=AZURE_SEARCH_SERVICE_ENDPOINT,
+                                        credential=credential)
+        fields = [
+                    SearchableField(name="filename", type=SearchFieldDataType.String,
+                                    filterable=True, facetable=True),
+                    SimpleField(name="id", type=SearchFieldDataType.String, 
+                                key=True, sortable=True, 
+                                filterable=True, facetable=True),
+                    SearchableField(name="line", type=SearchFieldDataType.String),
+                    SearchField(name="embedding", type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+                                searchable=True, vector_search_dimensions=384, 
+                                vector_search_profile_name="myHnswProfile")
+                ]
+
+        # Configure the vector search configuration  
+        vector_search = VectorSearch(
+            algorithms=[
+                HnswAlgorithmConfiguration(
+                    name="myHnsw",
+                    kind=VectorSearchAlgorithmKind.HNSW,
+                    parameters=HnswParameters(
+                        m=4,
+                        ef_construction=400,
+                        ef_search=500,
+                        metric=VectorSearchAlgorithmMetric.COSINE
+                    )
+                ),
+                ExhaustiveKnnAlgorithmConfiguration(
+                    name="myExhaustiveKnn",
+                    kind=VectorSearchAlgorithmKind.EXHAUSTIVE_KNN,
+                    parameters=ExhaustiveKnnParameters(
+                        metric=VectorSearchAlgorithmMetric.COSINE
+                    )
+                )
+            ],
+            profiles=[
+                VectorSearchProfile(
+                    name="myHnswProfile",
+                    algorithm_configuration_name="myHnsw",
+                ),
+                VectorSearchProfile(
+                    name="myExhaustiveKnnProfile",
+                    algorithm_configuration_name="myExhaustiveKnn",
+                )
+            ]
+        )
+
+    if 'create_connect_vcstore' == user_input:
+        # Create and connect vector store to base module
+
+        # Connect to Azure AI Foundry project and AI search service resource
+        wps_connection = AzureAISearchConnection(
+                name=AZURE_AI_SEARCH,
+                endpoint=AZURE_AI_SEARCH_TARGET,
+                credentials=credentials,
+            )
+        ml_client = MLClient(credentials, SUBSCRIPTION_ID, RESOURCE_GROUP, AI_PROJECT)
+        # ml_client.connections.create_or_update(wps_connection)
+        ai_search_connection = ml_client.connections.get(AZURE_AI_SEARCH)
+
+        # index_langchain_retriever = get_langchain_retriever_from_index(ai_search_connection.path)
+        embeddings = AzureOpenAIEmbeddings(
+            api_key=AZURE_OPENAI_API_KEY,
+            openai_api_version="2024-03-01-preview",
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME
+        )
+        
+        vector_store = AzureSearch(
+            azure_search_endpoint= ai_search_endpoint,
+            azure_search_key=ai_search_key,
+            index_name=index_name,
+            embedding_function=embeddings.embed_query
+        )
+
+        retriever = vector_store.as_retriever()
+        # Initialise LLM
+        llm = AzureChatOpenAI(
+            openai_api_version="2024-06-01",
+            api_key=AZURE_OPENAI_API_KEY,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
+            temperature=0.8,
+        )
+
+        # Create RAG context model
+        contextualize_q_system_prompt = """Given a chat history and the latest user question \
+        which might reference context in the chat history, formulate a standalone question \
+        which can be understood without the chat history. Do NOT answer the question, \
+        just reformulate it if needed and otherwise return it as is."""
+
+        contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", contextualize_q_system_prompt),
+                # MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+        history_aware_retriever = create_history_aware_retriever(
+            llm, retriever, contextualize_q_prompt
+        )
+        # Create chat
+        qa_system_prompt = """You are an assistant for question-answering tasks. \
+        Use the following pieces of retrieved context to answer the question. \
+        If you don't know the answer, just say that you don't know. \
+        Use three sentences maximum and keep the answer concise.\
+
+        {context}"""
+
+        qa_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", qa_system_prompt),
+                # MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+
+        question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+
+        rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+
+        print(rag_chain.invoke({"input": "Name all the stats for the monster Awakened Tree."}))
     
-    vector_stor = AzureSearch(
-        azure_search_endpoint= ai_search_endpoint,
-        azure_search_key=ai_search_key,
-        index_name=index_name,
-        embedding_function=embeddings.embed_query
-    )
-    # Create chat
-    llm = AzureChatOpenAI(
-        openai_api_version="2024-06-01",
-        api_key=AZURE_OPENAI_API_KEY,
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
-        temperature=0.8,
-    )
+    if 'create_search_index' == user_input:
+        # Create search index
+        create_search_index(
+            data_loader,
+            USE_AAD_FOR_SEARCH,
+            index_name, vectorizer_name,
+            AZURE_OPENAI_ENDPOINT,
+            AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
+            AZURE_OPENAI_API_KEY, AZURE_OPENAI_MODEL_NAME,
+            ai_search_key,
+            SEARCH_SERVICE_ENDPOINT)
 
-    template = """
-        System:
-        You are an AI assistant helping users answer questions given a specific context.
-        Use the following pieces of context to answer the questions as completely, 
-        correctly, and concisely as possible.
-        Your answer should only come from the context. Don't try to make up an answer.
+    if 'create_skillset' == user_input:
+        # Create Skillset
+        skillset_name = f"{index_name}-skillset"
 
-        {context}
+        split_skill = data_loader.create_split_skill()
+        openai_embedding_skill = data_loader.create_embedding_skill_openai(
+            azure_openai_endpoint= AZURE_OPENAI_ENDPOINT,
+            azure_openai_embedding_deployment= AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
+            azure_openai_key= AZURE_OPENAI_API_KEY)
+        search_indexer = data_loader.create_index_projections(index_name)
+        data_loader.create_indexer_client(SEARCH_SERVICE_ENDPOINT, credential=AzureKeyCredential(ai_search_key))
+        skills = [split_skill, openai_embedding_skill]
+        data_loader.create_skillset(
+            skillset_name=skillset_name,
+            skills=skills,
+            index_projections=search_indexer
+            )
+    if 'run_indexer' == user_input:
+        # Run Indexer
+        data_source = AZURE_BLOB_DATA_SOURCE
 
-        ---
+        skillset_name = f"vector-1741055615730-skillset"
+        data_loader.create_indexer_client(SEARCH_SERVICE_ENDPOINT, credential=AzureKeyCredential(ai_search_key))
+        data_loader.create_and_run_indexer(
+            index_name='vector-1741055615730',
+            skillset_name=skillset_name,
+            data_source='vector-1741055615730-datasource',
+            endpoint=SEARCH_SERVICE_ENDPOINT,
+            credential=AzureKeyCredential(ai_search_key))
 
-        Question: {question}
+    if 'create_blob' == user_input:
+        # Create Blob Storage
+        data_loader.create_blob()
 
-        Answer:"
-        """
-    prompt_template = PromptTemplate(template=template, input_variables=["context", "question"])
+        container_name='dnd-generator-context-data'
+        filepath = '/home/niclaswiegleb/projects/DnD-Homebrew-Generator/data_loaders/data/dnd'
+        filename = 'spells.csv'
 
-    qa = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=index_langchain_retriever,
-        return_source_documents=True,
-        chain_type_kwargs={
-            "prompt": prompt_template,
-        },
-    )
+        data_loader.upload_blob_file(container_name=container_name, filepath=filepath, filename=filename)
 
-    question = """
-        In the grimms_tale.xlsx dataset, what is the story with the highest rating?
-        """
-
-    response = qa(question)
-    print(f'"answer": {response["result"]}')
-    # Create search index
-    # create_search_index(
-    #     data_loader,
-    #     USE_AAD_FOR_SEARCH,
-    #     index_name, vectorizer_name,
-    #     AZURE_OPENAI_ENDPOINT,
-    #     AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
-    #     AZURE_OPENAI_API_KEY, AZURE_OPENAI_MODEL_NAME,
-    #     ai_search_key,
-    #     SEARCH_SERVICE_ENDPOINT)
-
-    # Create Skillset
-    # skillset_name = f"{index_name}-skillset"
-
-    # split_skill = data_loader.create_split_skill()
-    # openai_embedding_skill = data_loader.create_embedding_skill_openai(
-    #     azure_openai_endpoint= AZURE_OPENAI_ENDPOINT,
-    #     azure_openai_embedding_deployment= AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
-    #     azure_openai_key= AZURE_OPENAI_API_KEY)
-    # search_indexer = data_loader.create_index_projections(index_name)
-    # data_loader.create_indexer_client(SEARCH_SERVICE_ENDPOINT, credential=AzureKeyCredential(ai_search_key))
-    # skills = [split_skill, openai_embedding_skill]
-    # data_loader.create_skillset(
-    #     skillset_name=skillset_name,
-    #     skills=skills,
-    #     index_projections=search_indexer
-    #     )
-
-    # Run Indexer
-    # data_source = '___'
-    # skillset_name = f"{index_name}-skillset"
-    # data_loader.create_indexer_client(SEARCH_SERVICE_ENDPOINT, credential=AzureKeyCredential(ai_search_key))
-    # data_loader.create_and_run_indexer(
-    #     index_name=index_name,
-    #     skillset_name=skillset_name,
-    #     data_source=data_source,
-    #     endpoint=SEARCH_SERVICE_ENDPOINT,
-    #     credential=AzureKeyCredential(ai_search_key))
-
-    # Create Blob Storage
-    # data_loader.create_blob()
-
-    # container_name='grimms-tales'
-    # filepath = '/home/niclaswiegleb/projects/DnD-Homebrew-Generator/data_loaders/data/german_folk_tales/'
-    # filename = 'grimms_tale.xlsx'
-
-    # data_loader.upload_blob_file(container_name=container_name, filepath=filepath, filename=filename)
-
-    # Module 1 execution
-    # module_1 = Module1()
-    # module_1.load_prompt()
-    # module_1.create(endpoint= endpoint, api_key= api_key, model= model)
-    # print(module_1.assistant.id)
+        # Module 1 execution
+        module_1 = Module1()
+        module_1.load_prompt()
+        module_1.create(endpoint= endpoint, api_key= api_key, model= model)
+        print(module_1.assistant.id)

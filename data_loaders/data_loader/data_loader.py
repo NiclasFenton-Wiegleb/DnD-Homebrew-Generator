@@ -98,31 +98,41 @@ class DataLoader():
     def create_fields(self, vector_search_dimensions):
         # Create fields used for initialising index search
         return [
-            SearchField(
-                name="parent_id",
-                type=SearchFieldDataType.String,
-                sortable=True,
-                filterable=True,
-                facetable=True,
-            ),
-            SearchField(name="title", type=SearchFieldDataType.String),
-            SearchField(
-                name="chunk_id",
-                type=SearchFieldDataType.String,
-                key=True,
-                sortable=True,
-                filterable=True,
-                facetable=True,
-                analyzer_name="keyword",
-            ),
-            SearchField(name="chunk", type=SearchFieldDataType.String),
-            SearchField(
-                name="vector",
-                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                vector_search_dimensions=vector_search_dimensions,
-                vector_search_profile_name="myHnswProfileSQ",
-                stored=False
-            ),
+            # SearchField(
+            #     name="parent_id",
+            #     type=SearchFieldDataType.String,
+            #     sortable=True,
+            #     filterable=True,
+            #     facetable=True,
+            # ),
+            # SearchField(name="title", type=SearchFieldDataType.String),
+            # SearchField(
+            #     name="chunk_id",
+            #     type=SearchFieldDataType.String,
+            #     key=True,
+            #     sortable=True,
+            #     filterable=True,
+            #     facetable=True,
+            #     analyzer_name="keyword",
+            # ),
+            # SearchField(name="chunk", type=SearchFieldDataType.String),
+            # SearchField(
+            #     name="content_vector",
+            #     type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            #     vector_search_dimensions=vector_search_dimensions,
+            #     vector_search_profile_name="myHnswProfileSQ",
+            #     stored=False
+            # ),
+            SimpleField(name='id', type=SearchFieldDataType.String,
+                        key= True, sotrable= True,
+                        filterable= True, facetable= True),
+            SearchableField(name='line', type=SearchFieldDataType.String),
+            SearchableFiled(name='filename', type=SearchFieldDataType.String,
+                            filterable= True, facetable= True),
+            SearchField(name= 'embedding', type= SearchFieldDataType.Collection(SearchFieldDataType.Single),
+                        searchable= True, vector_search_dimensions= vector_search_dimensions,
+                        vector_search_profile_name = 'myHnswProfileSQ')
+
         ]
         
     def create_vector_search_configuration(self, vectorizer_name, az_openai_parameter):
@@ -181,7 +191,8 @@ class DataLoader():
                 SemanticConfiguration(
                     name="mySemanticConfig",
                     prioritized_fields=SemanticPrioritizedFields(
-                        content_fields=[SemanticField(field_name="chunk")]
+                        content_fields=[SemanticField(field_name="line")],
+                        keywords_fields=[SemanticField(field_name='filename')]
                     ),
                 )
             ]
@@ -228,12 +239,12 @@ class DataLoader():
             model_name=AzureOpenAIModelName.TEXT_EMBEDDING3_LARGE,
             dimensions=3072, # Take advantage of the larger model with variable dimension sizes
             inputs=[InputFieldMappingEntry(name="text", source="/document/pages/*")],
-            outputs=[OutputFieldMappingEntry(name="embedding", target_name="vector")],
+            outputs=[OutputFieldMappingEntry(name="embedding", target_name="content_vector")],
         )
 
     def create_index_projections(self, index_name):
         """Creates index projections for use in a skillset."""
-        vector_source = ("/document/pages/*/vector")
+        vector_source = ("/document/pages/*/content_vector")
         return SearchIndexerIndexProjection(
             selectors=[
                 SearchIndexerIndexProjectionSelector(
@@ -242,7 +253,7 @@ class DataLoader():
                     source_context="/document/pages/*",
                     mappings=[
                         InputFieldMappingEntry(name="chunk", source="/document/pages/*"),
-                        InputFieldMappingEntry(name="vector", source=vector_source),
+                        InputFieldMappingEntry(name="content_vector", source=vector_source),
                         InputFieldMappingEntry(
                             name="title", source="/document/metadata_storage_name"
                         ),
