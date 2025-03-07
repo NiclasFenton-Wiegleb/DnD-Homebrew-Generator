@@ -6,7 +6,12 @@ sys.path.append('./data_loaders')
 
 import pandas as pd
 from openai import AzureOpenAI
+from langchain.tools.retriever import create_retriever_tool
+from langchain.agents import AgentType, Tool, initialize_agent
+from langchain_openai import OpenAI
+from langchain.chains import RetrievalQA
 from langchain_community.document_loaders import CSVLoader
+from langchain_text_splitters import CharacterTextSplitter
 from langchain.chains import create_history_aware_retriever
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import create_retrieval_chain
@@ -283,8 +288,12 @@ if __name__ == '__main__':
     if 'connect_vcstore' == user_input:
         # Create and connect vector store to base module
         # index_name = input(f'Enter index name: \n')
-        filepath = input(f'Enter filepath: \n')
-        # query = input(f'Query: \n')
+        index_name = 'dnd-generator-vcstore'
+        load_docs = input(f'Do you want to upload additional files? (Y/N)')
+        load_docs_options = ['Y', 'N']
+        while load_docs not in load_docs_options:
+            print('Invalid option.')
+            load_docs = input(f'Do you want to upload additional files? (Y/N)')
         # model = SentenceTransformer(AZURE_OPENAI_MODEL_NAME)
         # query_vector = model.encode([query])[0]
         # search_client = SearchClient(endpoint=SEARCH_SERVICE_ENDPOINT,
@@ -318,26 +327,49 @@ if __name__ == '__main__':
             embedding_function=embeddings.embed_query
         )
 
-        docs = []
+        if load_docs == 'Y':
+            directory = input(f'Enter directory path: \n')
 
-        # for file in os.listdir(directory):
-        #     filename = os.fsdecode(file)
-        #     if filename.endswith('.csv'):
-        loader = CSVLoader(filepath,
-                csv_args={
-                    'delimiter': ',',
-                    'quotechar': '"',
-                })
-        docs_lazy = await loader.lazy_load()
-        for doc in docs_lazy:
-            docs.append(doc)
-        print(docs)
-        # docs = vector_store.similarity_search(
-        #     query=query,
-        #     k=3,
-        #     search_type='similarity'
-        # )
-        # print(docs[0].page_content)
+            for file in os.listdir(directory):
+                filename = os.fsdecode(file)
+                if filename.endswith('.csv'):
+                    loader = CSVLoader(f'{directory}/{filename}',
+                            csv_args={
+                                'delimiter': ',',
+                                'quotechar': '"',
+                            })
+                    text_splitter = CharacterTextSplitter(chunk_size=1500, chunk_overlap=100)
+                    docs = loader.load_and_split(text_splitter=text_splitter)
+            
+            vector_store.add_documents(docs)
+
+        #Create the agent and its tools
+
+        llm = AzureChatOpenAI(
+            openai_api_version="2024-06-01",
+            api_key=AZURE_OPENAI_API_KEY,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
+            temperature=0.8,
+        )
+        retriever = vector_store.as_retriever()
+
+        dnd_db = RetrievalQA.from_chain_type(
+            llm= llm, chain_type='stuff', retriever= retriever
+        )
+
+        tools = [
+            Tool(
+                name='Dungeons and Dragons database',
+                func=dnd_db,
+                description='Useful for when you need information regarding Dungeons and Dragons classes, monsters, equipment, races or spells.'
+            )
+        ]
+        agent = initialize_agent(
+            tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True
+        )
+        query = input(f'Query: \n')
+        agent.run(query)
         # retriever = vector_store.as_retriever()
         # # Initialise LLM
         # llm = AzureChatOpenAI(
@@ -357,7 +389,7 @@ if __name__ == '__main__':
         # contextualize_q_prompt = ChatPromptTemplate.from_messages(
         #     [
         #         ("system", contextualize_q_system_prompt),
-        #         MessagesPlaceholder("chat_history"),
+        #         # MessagesPlaceholder("chat_history"),
         #         ("human", "{input}"),
         #     ]
         # )
@@ -375,7 +407,7 @@ if __name__ == '__main__':
         # qa_prompt = ChatPromptTemplate.from_messages(
         #     [
         #         ("system", qa_system_prompt),
-        #         MessagesPlaceholder("chat_history"),
+        #         # MessagesPlaceholder("chat_history"),
         #         ("human", "{input}"),
         #     ]
         # )
