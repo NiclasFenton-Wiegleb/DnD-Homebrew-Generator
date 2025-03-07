@@ -6,6 +6,7 @@ sys.path.append('./data_loaders')
 
 import pandas as pd
 from openai import AzureOpenAI
+from langchain_community.document_loaders import CSVLoader
 from langchain.chains import create_history_aware_retriever
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import create_retrieval_chain
@@ -34,6 +35,16 @@ from azure.search.documents.indexes.models import (
     SearchField,
     SearchableField,
     VectorSearch,
+    VectorSearchAlgorithmKind,
+    VectorSearchAlgorithmMetric,
+    VectorSearchProfile,
+    ExhaustiveKnnAlgorithmConfiguration,
+    HnswParameters,
+    ExhaustiveKnnParameters,
+    SemanticConfiguration,
+    SemanticPrioritizedFields,
+    SemanticField,
+    SemanticSearch,
     HnswAlgorithmConfiguration
 )
 
@@ -56,7 +67,7 @@ def create_search_index(dataloader, USE_AAD_FOR_SEARCH, index_name, vectorizer_n
         az_openai_parameter=AzureOpenAIVectorizerParameters(
                         resource_url=AZURE_OPENAI_ENDPOINT,
                         deployment_name=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
-                        api_key=AZURE_OPENAI_API_KEY,
+                        api_key=AZUREs_OPENAI_API_KEY,
                         model_name=AZURE_OPENAI_MODEL_NAME,
                     )
     )
@@ -135,7 +146,7 @@ if __name__ == '__main__':
     data_loader = DataLoader(account_url, credentials)
     
     # Set variable for what service to run
-    options = ['create_embeddings', 'create_connect_vcstore', 'create_search_index'
+    options = ['create_embeddings', 'connect_vcstore', 'create_search_index'
                 'create_skillset', 'run_indexer', 'create_blob', 'upload_embeddings_to_index']
     text = ', '.join(options)
     print('What would you like to do?')
@@ -155,7 +166,8 @@ if __name__ == '__main__':
             api_key=AZURE_OPENAI_API_KEY,
             openai_api_version="2024-03-01-preview",
             azure_endpoint=AZURE_OPENAI_ENDPOINT,
-            azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME
+            azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME,
+            dimensions= 1500
         )
         
         for file in os.listdir(directory):
@@ -163,44 +175,48 @@ if __name__ == '__main__':
             if filename.endswith('.csv'):
                 # Create dataframe from file and iterate over each line
                 data = pd.read_csv(f'{filepath}/{filename}')
+
                 for i in range(len(data.index)):
                     dict_data = {}
+                    dict_data['id'] = str(i)
                     dict_data['filename'] = filename
-                    dict_data['id'] = i + 1
-                    print(dict_data)
-                    break
                     chunk = []
-        #             for c in data.columns:
-        #                 sentence = f'{c}: {data[c].iloc[i]}'
-        #                 chunk.append(sentence)
-        #             chunks = ';'.join(chunk)
-        #             dict_data['line'] = chunks
-        #             dict_data['embedding'] = embeddings.embed_query(chunks)
-        #         input_data.append(dict_data)
-        #     else:
-        #         continue
-        #     print(f'Completed processing: {filename}')
-        # # Output embeddings to docVectors.json file
-        # try:
-        #     with open(f'{filepath}/docVectors.json', 'x') as f:
-        #         json.dump(input_data, f)
-        # except:
-        #     with open(f'{filepath}/docVectors.json', 'w') as f:
-        #         json.dump(input_data, f)
+                    for c in data.columns:
+                        sentence = f'{c}: {data[c].iloc[i]}'
+                        chunk.append(sentence)
+                    chunks = '; '.join(chunk)
+                    dict_data['line'] = chunks
+                    vector = embeddings.embed_query(chunks)
+                    dict_data['embedding'] = vector
+                    input_data.append(dict_data)
+            else:
+                continue
+            print(f'Completed processing: {filename}')
+        # Output embeddings to docVectors.json file
+        try:
+            with open(f'{filepath}/docVectors.json', 'x') as f:
+                json.dump(input_data, f)
+        except:
+            with open(f'{filepath}/docVectors.json', 'w') as f:
+                json.dump(input_data, f)
 
     if 'upload_embeddings_to_index' == user_input:
         # Upload the created embeddings to Azure index
-        index_client = SearchIndexClient(endpoint=AZURE_SEARCH_SERVICE_ENDPOINT,
-                                        credential=credential)
+        filepath = input(f'Enter filepath: \n')
+        index_name = input(f'Enter index name: \n')
+        
+        index_client = SearchIndexClient(endpoint= SEARCH_SERVICE_ENDPOINT,
+                                        credential= AzureKeyCredential(ai_search_key))
         fields = [
-                    SearchableField(name="filename", type=SearchFieldDataType.String,
-                                    filterable=True, facetable=True),
+
                     SimpleField(name="id", type=SearchFieldDataType.String, 
                                 key=True, sortable=True, 
                                 filterable=True, facetable=True),
+                    SearchableField(name="filename", type=SearchFieldDataType.String,
+                                    filterable=True, facetable=True),
                     SearchableField(name="line", type=SearchFieldDataType.String),
                     SearchField(name="embedding", type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                                searchable=True, vector_search_dimensions=384, 
+                                searchable=True, vector_search_dimensions=1500, 
                                 vector_search_profile_name="myHnswProfile")
                 ]
 
@@ -236,19 +252,56 @@ if __name__ == '__main__':
                 )
             ]
         )
+        semantic_config = SemanticConfiguration(
+                            name="my-semantic-config",
+                            prioritized_fields=SemanticPrioritizedFields(
+                                content_fields=[SemanticField(field_name="line")],
+                                keywords_fields=[SemanticField(field_name="filename")]
+                            )
+                        )
+        # Create the semantic settings with the configuration
+        semantic_search = SemanticSearch(configurations=[semantic_config])
 
-    if 'create_connect_vcstore' == user_input:
+        # Create the search index with the semantic settings
+        index = SearchIndex(name=index_name, fields=fields,
+                            vector_search=vector_search, 
+                            semantic_search=semantic_search)
+        result = index_client.create_or_update_index(index)
+        print(f'{result.name} created')
+
+        # Upload some documents to the index
+        with open(filepath, 'r') as file:  
+            documents = json.load(file)
+        
+        search_client = SearchClient(endpoint=SEARCH_SERVICE_ENDPOINT,
+                                    index_name=index_name,
+                                    credential=AzureKeyCredential(ai_search_key))
+        result = search_client.upload_documents(documents=documents)
+        print(f"Uploaded {len(documents)} documents") 
+
+
+    if 'connect_vcstore' == user_input:
         # Create and connect vector store to base module
-
-        # Connect to Azure AI Foundry project and AI search service resource
-        wps_connection = AzureAISearchConnection(
-                name=AZURE_AI_SEARCH,
-                endpoint=AZURE_AI_SEARCH_TARGET,
-                credentials=credentials,
-            )
-        ml_client = MLClient(credentials, SUBSCRIPTION_ID, RESOURCE_GROUP, AI_PROJECT)
-        # ml_client.connections.create_or_update(wps_connection)
-        ai_search_connection = ml_client.connections.get(AZURE_AI_SEARCH)
+        # index_name = input(f'Enter index name: \n')
+        filepath = input(f'Enter filepath: \n')
+        # query = input(f'Query: \n')
+        # model = SentenceTransformer(AZURE_OPENAI_MODEL_NAME)
+        # query_vector = model.encode([query])[0]
+        # search_client = SearchClient(endpoint=SEARCH_SERVICE_ENDPOINT,
+        #                             index_name=index_name,
+        #                             credential=AzureKeyCredential(ai_search_key))
+        # vector_query = VectorizedQuery(vector=query_vector, 
+        #                        k_nearest_neighbors=3, 
+        #                        fields="embedding")
+        # # Connect to Azure AI Foundry project and AI search service resource
+        # wps_connection = AzureAISearchConnection(
+        #         name=AZURE_AI_SEARCH,
+        #         endpoint=AZURE_AI_SEARCH_TARGET,
+        #         credentials=credentials,
+        #     )
+        # ml_client = MLClient(credentials, SUBSCRIPTION_ID, RESOURCE_GROUP, AI_PROJECT)
+        # # ml_client.connections.create_or_update(wps_connection)
+        # ai_search_connection = ml_client.connections.get(AZURE_AI_SEARCH)
 
         # index_langchain_retriever = get_langchain_retriever_from_index(ai_search_connection.path)
         embeddings = AzureOpenAIEmbeddings(
@@ -265,53 +318,74 @@ if __name__ == '__main__':
             embedding_function=embeddings.embed_query
         )
 
-        retriever = vector_store.as_retriever()
-        # Initialise LLM
-        llm = AzureChatOpenAI(
-            openai_api_version="2024-06-01",
-            api_key=AZURE_OPENAI_API_KEY,
-            azure_endpoint=AZURE_OPENAI_ENDPOINT,
-            azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
-            temperature=0.8,
-        )
+        docs = []
 
-        # Create RAG context model
-        contextualize_q_system_prompt = """Given a chat history and the latest user question \
-        which might reference context in the chat history, formulate a standalone question \
-        which can be understood without the chat history. Do NOT answer the question, \
-        just reformulate it if needed and otherwise return it as is."""
+        # for file in os.listdir(directory):
+        #     filename = os.fsdecode(file)
+        #     if filename.endswith('.csv'):
+        loader = CSVLoader(filepath,
+                csv_args={
+                    'delimiter': ',',
+                    'quotechar': '"',
+                })
+        docs_lazy = await loader.lazy_load()
+        for doc in docs_lazy:
+            docs.append(doc)
+        print(docs)
+        # docs = vector_store.similarity_search(
+        #     query=query,
+        #     k=3,
+        #     search_type='similarity'
+        # )
+        # print(docs[0].page_content)
+        # retriever = vector_store.as_retriever()
+        # # Initialise LLM
+        # llm = AzureChatOpenAI(
+        #     openai_api_version="2024-06-01",
+        #     api_key=AZURE_OPENAI_API_KEY,
+        #     azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        #     azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
+        #     temperature=0.8,
+        # )
 
-        contextualize_q_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", contextualize_q_system_prompt),
-                # MessagesPlaceholder("chat_history"),
-                ("human", "{input}"),
-            ]
-        )
-        history_aware_retriever = create_history_aware_retriever(
-            llm, retriever, contextualize_q_prompt
-        )
-        # Create chat
-        qa_system_prompt = """You are an assistant for question-answering tasks. \
-        Use the following pieces of retrieved context to answer the question. \
-        If you don't know the answer, just say that you don't know. \
-        Use three sentences maximum and keep the answer concise.\
+        # # Create RAG context model
+        # contextualize_q_system_prompt = """Given a chat history and the latest user question \
+        # which might reference context in the chat history, formulate a standalone question \
+        # which can be understood without the chat history. Do NOT answer the question, \
+        # just reformulate it if needed and otherwise return it as is."""
 
-        {context}"""
+        # contextualize_q_prompt = ChatPromptTemplate.from_messages(
+        #     [
+        #         ("system", contextualize_q_system_prompt),
+        #         MessagesPlaceholder("chat_history"),
+        #         ("human", "{input}"),
+        #     ]
+        # )
+        # history_aware_retriever = create_history_aware_retriever(
+        #     llm, retriever, contextualize_q_prompt
+        # )
+        # # Create chat
+        # qa_system_prompt = """You are an assistant for question-answering tasks. \
+        # Use the following pieces of retrieved context to answer the question. \
+        # If you don't know the answer, just say that you don't know. \
+        # Use three sentences maximum and keep the answer concise.\
 
-        qa_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", qa_system_prompt),
-                # MessagesPlaceholder("chat_history"),
-                ("human", "{input}"),
-            ]
-        )
+        # {context}"""
 
-        question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+        # qa_prompt = ChatPromptTemplate.from_messages(
+        #     [
+        #         ("system", qa_system_prompt),
+        #         MessagesPlaceholder("chat_history"),
+        #         ("human", "{input}"),
+        #     ]
+        # )
 
-        rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+        # question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
 
-        print(rag_chain.invoke({"input": "Name all the stats for the monster Awakened Tree."}))
+        # rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+
+        # query = input(f'Query: \n')
+        # print(rag_chain.invoke({'input': query}))
     
     if 'create_search_index' == user_input:
         # Create search index
