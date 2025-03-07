@@ -1,11 +1,27 @@
 import sys
 import os
 import json
+import time
 sys.path.append('./pipelines')
 sys.path.append('./data_loaders')
 
 import pandas as pd
+import pprint
+from IPython.display import Image, display
 from openai import AzureOpenAI
+from typing import Annotated, Sequence, Literal
+from typing_extensions import TypedDict
+from langchain import hub
+from langgraph.graph import END, StateGraph, START
+from langgraph.prebuilt import ToolNode
+from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
+from langgraph.prebuilt import tools_condition
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 from langchain.tools.retriever import create_retriever_tool
 from langchain.agents import AgentType, Tool, initialize_agent
 from langchain_openai import OpenAI
@@ -55,6 +71,243 @@ from azure.search.documents.indexes.models import (
 
 from module_1 import Module1
 from data_loader import DataLoader
+
+class AgentState(TypedDict):
+    # The add_messages function defines how an update should be processed
+    # Default is to replace. add_messages says "append"
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+
+### Edges
+
+def grade_documents(state) -> Literal["generate", "rewrite"]:
+    """
+    Determines whether the retrieved documents are relevant to the question.
+
+    Args:
+        state (messages): The current state
+
+    Returns:
+        str: A decision for whether the documents are relevant or not
+    """
+
+    print("---CHECK RELEVANCE---")
+
+    # Data model
+    class grade(BaseModel):
+        """Binary score for relevance check."""
+
+        binary_score: str = Field(description="Relevance score 'yes' or 'no'")
+
+    # LLM
+    model = AzureChatOpenAI(
+            openai_api_version="2024-06-01",
+            api_key=AZURE_OPENAI_API_KEY,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
+            temperature=0.8,
+        )
+
+    # LLM with tool and validation
+    llm_with_tool = model.with_structured_output(grade)
+
+    # Prompt
+    prompt = PromptTemplate(
+        template="""You are a grader assessing relevance of a retrieved document to a user question. \n 
+        Here is the retrieved document: \n\n {context} \n\n
+        Here is the user question: {question} \n
+        If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. \n
+        Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question.""",
+        input_variables=["context", "question"],
+    )
+
+    # Chain
+    chain = prompt | llm_with_tool
+
+    messages = state["messages"]
+    last_message = messages[-1]
+
+    question = messages[0].content
+    docs = last_message.content
+
+    scored_result = chain.invoke({"question": question, "context": docs})
+
+    score = scored_result.binary_score
+
+    if score == "yes":
+        print("---DECISION: DOCS RELEVANT---")
+        return "generate"
+
+    else:
+        print("---DECISION: DOCS NOT RELEVANT---")
+        print(score)
+        return "rewrite"
+
+
+### Nodes
+
+
+def agent(state):
+    """
+    Invokes the agent model to generate a response based on the current state. Given
+    the question, it will decide to retrieve using the retriever tool, or simply end.
+
+    Args:
+        state (messages): The current state
+
+    Returns:
+        dict: The updated state with the agent response appended to messages
+    """
+    print("---CALL AGENT---")
+    messages = state["messages"]
+    # prompt = messages[0].split("'", 1)[0]
+    content = str(messages[0])
+    print(content)
+    content = content.split("'", 1)[1]
+    print(content)
+    content = content.split("'", 1)[0]
+    print('content: ', content)
+    print(type(content))
+    # prompt = str(content[0])
+    # prompt = prompt.split("'", 1)[1]
+    # print(prompt)
+    # print(type(prompt))
+    # model = AzureChatOpenAI(
+    #         openai_api_version="2024-06-01",
+    #         api_key=AZURE_OPENAI_API_KEY,
+    #         azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    #         azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
+    #         temperature=0.8,
+    #     )
+
+    # Load Module
+    module_1 = Module1()
+    module_1.load_prompt()
+    module_1.create(endpoint= endpoint, api_key= api_key, model= model)
+
+    # Create a thread
+    thread = module_1.client.beta.threads.create()
+
+    # Add a user question to the thread
+    message = module_1.client.beta.threads.messages.create(
+    thread_id=thread.id,
+    role="user",
+    content= str(content))
+
+
+    # Run the thread
+    run = module_1.client.beta.threads.runs.create(
+    thread_id=thread.id,
+    assistant_id=module_1.assistant.id
+    )
+
+    # Looping until the run completes or fails
+    while run.status in ['queued', 'in_progress', 'cancelling']:
+        time.sleep(1)
+        run = module_1.client.beta.threads.runs.retrieve(
+            thread_id=thread.id,
+            run_id=run.id
+        )
+
+    if run.status == 'completed':
+        response = module_1.client.beta.threads.messages.list(
+            thread_id=thread.id
+        )
+        response = str(response)
+        response = response.split("value='")[1]
+        response = response.split("')",1) [0]
+        print(response)
+        print(type(response))
+        return {"messages": [str(response)]}
+    elif run.status == 'requires_action':
+        # the assistant requires calling some functions
+        # and submit the tool outputs back to the run
+        pass
+    else:
+        return run.status
+
+    # response = module_1.invoke(messages)
+    # # We return a list, because this will get added to the existing list
+    # return {"messages": [response]}
+
+
+def rewrite(state):
+    """
+    Transform the query to produce a better question.
+
+    Args:
+        state (messages): The current state
+
+    Returns:
+        dict: The updated state with re-phrased question
+    """
+
+    print("---TRANSFORM QUERY---")
+    messages = state["messages"]
+    question = messages[0].content
+
+    msg = [
+        HumanMessage(
+            content=f""" \n 
+    Look at the input and try to reason about the underlying semantic intent / meaning. \n 
+    Here is the initial question:
+    \n ------- \n
+    {question} 
+    \n ------- \n
+    Formulate an improved question: """,
+        )
+    ]
+
+    # Grader
+    model = AzureChatOpenAI(
+            openai_api_version="2024-06-01",
+            api_key=AZURE_OPENAI_API_KEY,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
+            temperature=0.8,
+        )
+    response = model.invoke(msg)
+    return {"messages": [response]}
+
+
+def generate(state):
+    """
+    Generate answer
+
+    Args:
+        state (messages): The current state
+
+    Returns:
+         dict: The updated state with re-phrased question
+    """
+    print("---GENERATE---")
+    messages = state["messages"]
+    question = messages[0].content
+    last_message = messages[-1]
+
+    docs = last_message.content
+
+    # Prompt
+    prompt = hub.pull("rlm/rag-prompt")
+
+    # LLM
+    llm = AzureChatOpenAI(
+            openai_api_version="2024-06-01",
+            api_key=AZURE_OPENAI_API_KEY,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_MODEL_NAME, # verify the model name and deployment name
+            temperature=0.8,
+        )
+
+    # Post-processing
+    def format_docs(docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    # Chain
+    rag_chain = prompt | llm | StrOutputParser()
+
+    # Run
+    response = rag_chain.invoke({"context": docs, "question": question})
+    return {"messages": [response]}
 
 def create_search_index(dataloader, USE_AAD_FOR_SEARCH, index_name, vectorizer_name, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME, AZURE_OPENAI_API_KEY, AZURE_OPENAI_MODEL_NAME, ai_search_key, SEARCH_SERVICE_ENDPOINT):
     # Create a search index using data_loader
@@ -152,13 +405,93 @@ if __name__ == '__main__':
     
     # Set variable for what service to run
     options = ['create_embeddings', 'connect_vcstore', 'create_search_index'
-                'create_skillset', 'run_indexer', 'create_blob', 'upload_embeddings_to_index']
+                'create_skillset', 'run_indexer', 'create_blob', 'upload_embeddings_to_index',
+                'create_graph', 'module_1']
     text = ', '.join(options)
     print('What would you like to do?')
     user_input = input(f'Available options:\n{text}\n')
     while user_input not in options:
         print('Invalid option.')
         user_input = input(f'Available options:\n{text}\n')
+
+    if 'create_graph' == user_input:
+        # Create LangGraph RAG system
+        index_name = 'dnd-generator-vcstore'
+        embeddings = AzureOpenAIEmbeddings(
+            api_key=AZURE_OPENAI_API_KEY,
+            openai_api_version="2024-03-01-preview",
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYED_MODEL_NAME
+        )
+        
+        vector_store = AzureSearch(
+            azure_search_endpoint= ai_search_endpoint,
+            azure_search_key=ai_search_key,
+            index_name=index_name,
+            embedding_function=embeddings.embed_query
+        )
+        retriever = vector_store.as_retriever()
+
+        retriever_tool = create_retriever_tool(
+        retriever,
+        "retrieve_dnd_info",
+        "Search and return information about Dungeons and Dragons classes, monsters, equipment, races and spells.",
+        )
+
+        tools = [retriever_tool]
+
+
+        # Define a new graph
+        workflow = StateGraph(AgentState)
+
+        # Define the nodes we will cycle between
+        workflow.add_node("agent", agent)  # agent
+        retrieve = ToolNode([retriever_tool])
+        workflow.add_node("retrieve", retrieve)  # retrieval
+        workflow.add_node("rewrite", rewrite)  # Re-writing the question
+        workflow.add_node(
+            "generate", generate
+        )  # Generating a response after we know the documents are relevant
+        # Call agent node to decide to retrieve or not
+        workflow.add_edge(START, "agent")
+
+        # Decide whether to retrieve
+        workflow.add_conditional_edges(
+            "agent",
+            # Assess agent decision
+            tools_condition,
+            {
+                # Translate the condition outputs to nodes in our graph
+                "tools": "retrieve",
+                END: END,
+            },
+        )
+
+        # Edges taken after the `action` node is called.
+        workflow.add_conditional_edges(
+            "retrieve",
+            # Assess agent decision
+            grade_documents,
+        )
+        workflow.add_edge("generate", END)
+        workflow.add_edge("rewrite", "agent")
+
+        # Compile
+        graph = workflow.compile()
+        
+        query = input(f'Query:\n')
+
+        inputs = {
+        "messages": [
+            ("user", query),
+            ]
+        }
+        for output in graph.stream(inputs):
+            for key, value in output.items():
+                pprint.pprint(f"Output from node '{key}':")
+                pprint.pprint("---")
+                pprint.pprint(value, indent=2, width=80, depth=None)
+            pprint.pprint("\n---\n")
 
     if 'create_embeddings' == user_input:
         # Create embeddings from datasets
@@ -354,17 +687,13 @@ if __name__ == '__main__':
         )
         retriever = vector_store.as_retriever()
 
-        dnd_db = RetrievalQA.from_chain_type(
-            llm= llm, chain_type='stuff', retriever= retriever
+        retriever_tool = create_retriever_tool(
+        retriever,
+        "retrieve_dnd_info",
+        "Search and return information about Dungeons and Dragons classes, monsters, equipment, races and spells.",
         )
 
-        tools = [
-            Tool(
-                name='Dungeons and Dragons database',
-                func=dnd_db,
-                description='Useful for when you need information regarding Dungeons and Dragons classes, monsters, equipment, races or spells.'
-            )
-        ]
+        tools = [retriever_tool]
         agent = initialize_agent(
             tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True
         )
@@ -470,7 +799,8 @@ if __name__ == '__main__':
         filename = 'spells.csv'
 
         data_loader.upload_blob_file(container_name=container_name, filepath=filepath, filename=filename)
-
+        
+    if 'module_1' == user_input:
         # Module 1 execution
         module_1 = Module1()
         module_1.load_prompt()
